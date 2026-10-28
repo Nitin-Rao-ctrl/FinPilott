@@ -22,6 +22,7 @@ import {
 
 import { Reveal } from "@/lib/animations";
 import { supabase } from "@/lib/supabase";
+import { convertTransactions, getPreferredCurrency, type SupportedCurrency } from "@/lib/currency";
 import {
   MonthSelector,
   type SelectedPeriod,
@@ -1347,6 +1348,15 @@ function formatDate(date: string): string {
   );
 }
 
+function currencySymbolFor(currency?: string) {
+  switch (String(currency || "INR").toUpperCase()) {
+    case "USD": return "$";
+    case "EUR": return "€";
+    case "GBP": return "£";
+    default: return "₹";
+  }
+}
+
 /* ============================================================
    TRANSACTIONS PAGE
 ============================================================ */
@@ -1354,6 +1364,23 @@ function formatDate(date: string): string {
 export function TransactionsPage() {
   const [transactions, setTransactions] =
     useState<Transaction[]>([]);
+  const [displayCurrency, setDisplayCurrency] = useState<SupportedCurrency>("INR");
+  const [convertedPeriodTransactions, setConvertedPeriodTransactions] = useState<Transaction[] | null>(null);
+  const [currencyConversionError, setCurrencyConversionError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPreferredCurrency() {
+      try {
+        const userId = await getUserId();
+        if (!cancelled) setDisplayCurrency(getPreferredCurrency(userId));
+      } catch (error) {
+        console.error("Could not load preferred currency:", error);
+      }
+    }
+    loadPreferredCurrency();
+    return () => { cancelled = true; };
+  }, []);
 
   const [search, setSearch] =
     useState("");
@@ -1523,6 +1550,31 @@ const periodTransactions = useMemo(() => {
   });
 }, [transactions, selectedPeriod]);
 
+useEffect(() => {
+  let cancelled = false;
+  async function convertPeriodTotals() {
+    try {
+      const converted = await convertTransactions(periodTransactions, displayCurrency);
+      if (cancelled) return;
+      if (!converted) {
+        setConvertedPeriodTransactions(null);
+        setCurrencyConversionError(true);
+        return;
+      }
+      setConvertedPeriodTransactions(converted as Transaction[]);
+      setCurrencyConversionError(false);
+    } catch (error) {
+      console.error("Transaction currency conversion failed:", error);
+      if (!cancelled) {
+        setConvertedPeriodTransactions(null);
+        setCurrencyConversionError(true);
+      }
+    }
+  }
+  convertPeriodTotals();
+  return () => { cancelled = true; };
+}, [periodTransactions, displayCurrency]);
+
 const filtered = useMemo(() => {
   let result = [...periodTransactions];
 
@@ -1593,7 +1645,7 @@ const filtered = useMemo(() => {
 
   const totalIncome = useMemo(
     () =>
-      periodTransactions
+      (convertedPeriodTransactions || [])
         .filter(
           (transaction) =>
             transaction.type ===
@@ -1607,12 +1659,12 @@ const filtered = useMemo(() => {
             ),
           0,
         ),
-    [periodTransactions],
+    [convertedPeriodTransactions],
   );
 
   const totalExpense = useMemo(
     () =>
-      periodTransactions
+      (convertedPeriodTransactions || [])
         .filter(
           (transaction) =>
             transaction.type ===
@@ -1626,7 +1678,7 @@ const filtered = useMemo(() => {
             ),
           0,
         ),
-    [periodTransactions],
+    [convertedPeriodTransactions],
   );
 
   /* ==========================================================
@@ -1867,7 +1919,7 @@ const filtered = useMemo(() => {
             </div>
 
             <p className="text-2xl font-bold text-white mt-3">
-              ₹
+              {currencySymbolFor(displayCurrency)}
               {totalIncome.toLocaleString(
                 "en-IN",
                 {
@@ -1888,7 +1940,7 @@ const filtered = useMemo(() => {
             </div>
 
             <p className="text-2xl font-bold text-white mt-3">
-              ₹
+              {currencySymbolFor(displayCurrency)}
               {totalExpense.toLocaleString(
                 "en-IN",
                 {
@@ -1909,7 +1961,7 @@ const filtered = useMemo(() => {
             </div>
 
             <p className="text-2xl font-bold text-white mt-3">
-              ₹
+              {currencySymbolFor(displayCurrency)}
               {(
                 totalIncome -
                 totalExpense
@@ -1923,6 +1975,12 @@ const filtered = useMemo(() => {
             </p>
           </div>
         </div>
+
+        {currencyConversionError && (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-200">
+            Exchange rates could not be loaded. Summary totals are unavailable until conversion works; each transaction below is shown in its original currency.
+          </div>
+        )}
 
         {/* ======================================================
             FILTERS
@@ -2124,7 +2182,7 @@ const filtered = useMemo(() => {
                           {isIncome
                             ? "+"
                             : "-"}
-                          ₹
+                          {currencySymbolFor(transaction.currency)}
                           {Number(
                             transaction.amount ||
                               0,
@@ -2272,7 +2330,7 @@ const filtered = useMemo(() => {
                     "income"
                       ? "+"
                       : "-"}
-                    ₹
+                    {currencySymbolFor(deleteTarget.currency)}
                     {Number(
                       deleteTarget.amount ||
                         0,
