@@ -6,6 +6,7 @@ export type FinancialTransaction = {
   type?: string;
   amount?: number | string;
   category?: string;
+  currency?: 'INR' | 'USD' | 'EUR' | 'GBP' | string;
 
   // Supports both the current and legacy fixed-expense formats.
   expenseType?: 'fixed' | 'variable' | string;

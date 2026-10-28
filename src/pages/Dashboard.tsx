@@ -30,6 +30,7 @@
 
   import { CountUp, Reveal } from '@/lib/animations';
   import { supabase } from '@/lib/supabase';
+  import { convertTransactions, getPreferredCurrency } from '@/lib/currency';
   import type { SelectedPeriod } from '@/components/MonthSelector';
 
   const PIE_COLORS = [
@@ -65,6 +66,9 @@
     const [transactions, setTransactions] = useState<Transaction[]>([]);
 const [loading, setLoading] = useState(true);
 const [userName, setUserName] = useState('User');
+const [displayCurrency, setDisplayCurrency] = useState<'INR' | 'USD' | 'EUR' | 'GBP'>('INR');
+const [currencyError, setCurrencyError] = useState(false);
+const currencySymbol = displayCurrency === 'USD' ? '$' : displayCurrency === 'EUR' ? '€' : displayCurrency === 'GBP' ? '£' : '₹';
 
 const [selectedPeriod] =
   useState<SelectedPeriod>(() => {
@@ -136,10 +140,22 @@ useEffect(() => {
       }
 
       const data = await response.json();
+      const preferredCurrency = getPreferredCurrency(user.id);
+      setDisplayCurrency(preferredCurrency);
 
-      setTransactions(
-        Array.isArray(data) ? data : []
+      const converted = await convertTransactions(
+        (Array.isArray(data) ? data : []) as Transaction[],
+        preferredCurrency
       );
+
+      if (!converted) {
+        setCurrencyError(true);
+        setTransactions([]);
+        return;
+      }
+
+      setCurrencyError(false);
+      setTransactions(converted as Transaction[]);
     } catch (error) {
       console.error(
         'Error loading dashboard transactions:',
@@ -796,7 +812,7 @@ if (expenseTransactions.length > 0) {
         type: 'positive',
         title:
           'You are currently in positive balance',
-        detail: `Your current balance is ₹${balance.toLocaleString(
+        detail: `Your current balance is ${currencySymbol}${balance.toLocaleString(
           'en-IN'
         )}.`,
       });
@@ -810,9 +826,9 @@ if (expenseTransactions.length > 0) {
         type: 'danger',
         title:
           "You've exceeded today's limit",
-        detail: `You spent ₹${todaySpent.toLocaleString(
+        detail: `You spent ${currencySymbol}${todaySpent.toLocaleString(
           'en-IN'
-        )} today against a recommended ₹${dailyLimit.toLocaleString(
+        )} today against a recommended ${currencySymbol}${dailyLimit.toLocaleString(
           'en-IN'
         )}.`,
       });
@@ -962,6 +978,12 @@ const runOutDays =
     return (
       <div className="space-y-6">
 
+        {currencyError && (
+          <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3 text-sm text-amber-200">
+            Live exchange rates are unavailable. Dashboard totals are hidden to avoid mixing currencies. Please refresh and try again.
+          </div>
+        )}
+
         {/* ======================================================
             GREETING
         ====================================================== */}
@@ -989,44 +1011,48 @@ const runOutDays =
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
             <MetricCard
+              currencySymbol={currencySymbol}
               icon={
                 <TrendingUp className="w-4 h-4" />
               }
               label="Income"
-              value={`₹${totalIncome.toLocaleString(
+              value={`${currencySymbol}${totalIncome.toLocaleString(
                 'en-IN'
               )}`}
               color="text-emerald-400"
             />
 
             <MetricCard
+              currencySymbol={currencySymbol}
               icon={
                 <TrendingDown className="w-4 h-4" />
               }
               label="Expenses"
-              value={`₹${totalExpense.toLocaleString(
+              value={`${currencySymbol}${totalExpense.toLocaleString(
                 'en-IN'
               )}`}
               color="text-red-400"
             />
 
             <MetricCard
+              currencySymbol={currencySymbol}
               icon={
                 <Wallet className="w-4 h-4" />
               }
               label="Balance"
-              value={`₹${balance.toLocaleString(
+              value={`${currencySymbol}${balance.toLocaleString(
                 'en-IN'
               )}`}
               color="text-white"
             />
 
             <MetricCard
+              currencySymbol={currencySymbol}
               icon={
                 <Activity className="w-4 h-4" />
               }
               label="Savings"
-              value={`₹${savings.toLocaleString(
+              value={`${currencySymbol}${savings.toLocaleString(
                 'en-IN'
               )}`}
               color="text-emerald-400"
@@ -1145,7 +1171,7 @@ const runOutDays =
 
               <p className="text-4xl font-bold text-white">
 
-                ₹
+                {currencySymbol}
                 {dailyLimit.toLocaleString(
                   'en-IN'
                 )}
@@ -1175,11 +1201,11 @@ const runOutDays =
 
               <p className="text-xs text-gray-600 mt-2">
 
-                ₹
+                {currencySymbol}
                 {todaySpent.toLocaleString(
                   'en-IN'
                 )}{' '}
-                spent today · ₹
+                spent today · {currencySymbol}
                 {remainingToday.toLocaleString(
                   'en-IN'
                 )}{' '}
@@ -1241,11 +1267,11 @@ const runOutDays =
 
               <p className="text-xs text-gray-600 mt-2">
 
-                ₹
+                {currencySymbol}
                 {currentMonthBalance.toLocaleString(
                   'en-IN'
                 )}{' '}
-                balance · ₹
+                balance · {currencySymbol}
                 {Math.round(
                   averageDailyVariableSpend
                 ).toLocaleString(
@@ -1308,11 +1334,13 @@ const runOutDays =
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
 
               <ForecastCard
+                currencySymbol={currencySymbol}
                 label="Current Balance"
                 value={currentMonthBalance}
               />
 
               <ForecastCard
+                currencySymbol={currencySymbol}
                 label="Avg / Day"
                 value={Math.round(
                   averageDailyVariableSpendForecast
@@ -1320,6 +1348,7 @@ const runOutDays =
               />
 
               <ForecastCard
+  currencySymbol={currencySymbol}
   label={
     isCurrentMonth
       ? 'Expected Variable Spend'
@@ -1329,6 +1358,7 @@ const runOutDays =
 />
 
               <ForecastCard
+                currencySymbol={currencySymbol}
                 label="Month-End Balance"
                 value={projectedMonthEndBalance}
                 danger={projectedMonthEndBalance < 0}
@@ -1417,7 +1447,7 @@ const runOutDays =
                 </p>
 
                 <p className="text-lg font-bold text-emerald-400 mt-1">
-                  ₹
+                  {currencySymbol}
                   {currentMonthIncome.toLocaleString(
                     'en-IN'
                   )}
@@ -1432,7 +1462,7 @@ const runOutDays =
                 </p>
 
                 <p className="text-lg font-bold text-red-400 mt-1">
-                  ₹
+                  {currencySymbol}
                   {projectedMonthEndExpense.toLocaleString(
                     'en-IN'
                   )}
@@ -1536,7 +1566,7 @@ const runOutDays =
                         color: '#E5E7EB',
                       }}
                       formatter={(value) => [
-                        `₹${Number(
+                        `${currencySymbol}${Number(
                           value ?? 0
                         ).toLocaleString(
                           'en-IN'
@@ -1801,7 +1831,7 @@ const runOutDays =
                     </p>
 
                     <p className="text-lg font-bold text-white">
-                      ₹
+                      {currencySymbol}
                       {totalExpense.toLocaleString(
                         'en-IN'
                       )}
@@ -1816,7 +1846,7 @@ const runOutDays =
                     </p>
 
                     <p className="text-lg font-bold text-emerald-400">
-                      ₹
+                      {currencySymbol}
                       {savings.toLocaleString(
                         'en-IN'
                       )}
@@ -2028,11 +2058,13 @@ const runOutDays =
     label,
     value,
     color,
+    currencySymbol,
   }: {
     icon: ReactNode;
     label: string;
     value: string;
     color: string;
+    currencySymbol: string;
   }) {
     const numericValue = Number(
       value.replace(/[^0-9.-]/g, '')
@@ -2061,7 +2093,7 @@ const runOutDays =
                 ? Math.abs(numericValue)
                 : 0
             }
-            prefix="₹"
+            prefix={currencySymbol}
           />
 
         </p>
@@ -2123,11 +2155,13 @@ const runOutDays =
     value,
     danger = false,
     warning = false,
+    currencySymbol,
   }: {
     label: string;
     value: number;
     danger?: boolean;
     warning?: boolean;
+    currencySymbol: string;
   }) {
     return (
       <div className="bg-white/[0.02] rounded-xl p-3">
@@ -2146,7 +2180,7 @@ const runOutDays =
               : 'text-white'
           }`}
         >
-          ₹
+          {currencySymbol}
           {value.toLocaleString(
             'en-IN'
           )}

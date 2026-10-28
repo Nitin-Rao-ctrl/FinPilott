@@ -1,49 +1,64 @@
+
 const express = require('express');
 const Transaction = require('../models/Transaction');
 
 const router = express.Router();
+const SUPPORTED_CURRENCIES = ['INR', 'USD', 'EUR', 'GBP'];
 
-/*
-  GET all transactions for one user
+function normalizeCurrency(value) {
+  if (value === undefined || value === null || value === '') {
+    return 'INR';
+  }
 
-  Example:
-  GET /api/transactions?userId=abc123
-*/
+  const currency = String(value).toUpperCase();
+
+  return SUPPORTED_CURRENCIES.includes(currency)
+    ? currency
+    : null;
+}
+
+function getExpenseFields(type, expenseType, isFixed) {
+  const fixed =
+    type === 'expense' &&
+    (
+      isFixed === true ||
+      String(expenseType || '').toLowerCase() === 'fixed'
+    );
+
+  return {
+    expenseType:
+      type === 'expense'
+        ? fixed
+          ? 'fixed'
+          : 'variable'
+        : 'variable',
+    isFixed: type === 'expense' ? fixed : false,
+  };
+}
+
+// Get transactions for a user.
 router.get('/', async (req, res) => {
   try {
     const { userId } = req.query;
 
     if (!userId) {
-      return res.status(400).json({
-        message: 'userId is required',
-      });
+      return res.status(400).json({ message: 'userId is required' });
     }
 
-    const transactions = await Transaction.find({
-      userId,
-    }).sort({ date: -1 });
+    const transactions = await Transaction.find({ userId }).sort({
+      date: -1,
+    });
 
-    res.json(transactions);
+    return res.json(transactions);
   } catch (error) {
     console.error('GET transactions error:', error);
-
-    res.status(500).json({
-      message: error.message,
+    return res.status(500).json({
+      message: 'Failed to fetch transactions',
     });
   }
 });
 
-/*
-  CREATE transaction
-
-  Fixed expenses are stored using both:
-  - expenseType: 'fixed'
-  - isFixed: true
-
-  Variable expenses are stored using both:
-  - expenseType: 'variable'
-  - isFixed: false
-*/
+// Create transaction.
 router.post('/', async (req, res) => {
   try {
     const {
@@ -59,81 +74,125 @@ router.post('/', async (req, res) => {
     } = req.body;
 
     if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    if (!['income', 'expense'].includes(type)) {
       return res.status(400).json({
-        message: 'userId is required',
+        message: 'type must be income or expense',
       });
     }
 
-    const fixed =
-      type === 'expense' &&
-      (
-        isFixed === true ||
-        String(expenseType || '').toLowerCase() === 'fixed'
-      );
+    if (
+      amount === undefined ||
+      !Number.isFinite(Number(amount)) ||
+      Number(amount) < 0
+    ) {
+      return res.status(400).json({
+        message: 'amount must be a valid non-negative number',
+      });
+    }
+
+    if (!category || !date) {
+      return res.status(400).json({
+        message: 'category and date are required',
+      });
+    }
+
+    const currency = normalizeCurrency(req.body.currency);
+
+    if (!currency) {
+      return res.status(400).json({
+        message: 'Unsupported currency. Use INR, USD, EUR, or GBP.',
+      });
+    }
+
+    const expenseFields = getExpenseFields(
+      type,
+      expenseType,
+      isFixed
+    );
 
     const transaction = await Transaction.create({
       userId,
       type,
-      amount,
+      amount: Number(amount),
+      currency,
       category,
-      expenseType: type === 'expense'
-        ? (fixed ? 'fixed' : 'variable')
-        : undefined,
-      isFixed: type === 'expense' ? fixed : false,
-      description,
-      merchant,
+      ...expenseFields,
+      description: description || '',
+      merchant: merchant || '',
       date,
     });
 
-    res.status(201).json(transaction);
+    return res.status(201).json(transaction);
   } catch (error) {
     console.error('POST transaction error:', error);
-
-    res.status(400).json({
-      message: error.message,
-    });
+    return res.status(400).json({ message: error.message });
   }
 });
 
-/*
-  UPDATE transaction
-
-  Only the owner can update it.
-*/
+// Update transaction.
 router.put('/:id', async (req, res) => {
   try {
-    const { userId } = req.body;
+    const {
+      userId,
+      type,
+      amount,
+      category,
+      expenseType,
+      isFixed,
+      description,
+      merchant,
+      date,
+    } = req.body;
 
     if (!userId) {
+      return res.status(400).json({ message: 'userId is required' });
+    }
+
+    if (!['income', 'expense'].includes(type)) {
       return res.status(400).json({
-        message: 'userId is required',
+        message: 'type must be income or expense',
       });
     }
 
-    const fixed =
-      req.body.type === 'expense' &&
-      (
-        req.body.isFixed === true ||
-        String(req.body.expenseType || '').toLowerCase() === 'fixed'
-      );
+    if (
+      amount === undefined ||
+      !Number.isFinite(Number(amount)) ||
+      Number(amount) < 0
+    ) {
+      return res.status(400).json({
+        message: 'amount must be a valid non-negative number',
+      });
+    }
+
+    const currency = normalizeCurrency(req.body.currency);
+
+    if (!currency) {
+      return res.status(400).json({
+        message: 'Unsupported currency. Use INR, USD, EUR, or GBP.',
+      });
+    }
+
+    const expenseFields = getExpenseFields(
+      type,
+      expenseType,
+      isFixed
+    );
 
     const transaction = await Transaction.findOneAndUpdate(
-      {
-        _id: req.params.id,
-        userId,
-      },
+      { _id: req.params.id, userId },
       {
         $set: {
-          type: req.body.type,
-          amount: req.body.amount,
-          category: req.body.category,
-          expenseType: req.body.type === 'expense'
-            ? (fixed ? 'fixed' : 'variable')
-            : undefined,
-          isFixed: req.body.type === 'expense' ? fixed : false,
-          description: req.body.description,
-          merchant: req.body.merchant,
-          date: req.body.date,
+          type,
+          amount: Number(amount),
+          currency,
+          category,
+          ...expenseFields,
+          description: description || '',
+          merchant: merchant || '',
+          date,
         },
       },
       {
@@ -148,29 +207,20 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    res.json(transaction);
+    return res.json(transaction);
   } catch (error) {
     console.error('UPDATE transaction error:', error);
-
-    res.status(400).json({
-      message: error.message,
-    });
+    return res.status(400).json({ message: error.message });
   }
 });
 
-/*
-  DELETE transaction
-
-  Only the owner can delete it.
-*/
+// Delete transaction.
 router.delete('/:id', async (req, res) => {
   try {
     const { userId } = req.query;
 
     if (!userId) {
-      return res.status(400).json({
-        message: 'userId is required',
-      });
+      return res.status(400).json({ message: 'userId is required' });
     }
 
     const transaction = await Transaction.findOneAndDelete({
@@ -184,17 +234,13 @@ router.delete('/:id', async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       message: 'Transaction deleted successfully',
     });
   } catch (error) {
     console.error('DELETE transaction error:', error);
-
-    res.status(400).json({
-      message: error.message,
-    });
+    return res.status(400).json({ message: error.message });
   }
 });
 
 module.exports = router;
-

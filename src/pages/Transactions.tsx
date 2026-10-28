@@ -39,6 +39,7 @@ const API_BASE =
 ============================================================ */
 
 type TransactionType = "income" | "expense";
+type CurrencyCode = "INR" | "USD" | "EUR" | "GBP";
 
 type Transaction = {
   id?: string;
@@ -48,6 +49,9 @@ type Transaction = {
   type: TransactionType;
 
   amount: number;
+
+  // Original currency used when entering this transaction.
+  currency?: CurrencyCode;
 
   category: string;
 
@@ -1282,6 +1286,12 @@ function normalizeTransaction(
       transaction?.amount || 0,
     ),
 
+    currency: (["INR", "USD", "EUR", "GBP"].includes(
+      String(transaction?.currency || "INR").toUpperCase(),
+    )
+      ? String(transaction?.currency || "INR").toUpperCase()
+      : "INR") as CurrencyCode,
+
     category:
       transaction?.category || "Other",
 
@@ -2424,6 +2434,42 @@ function TransactionForm({
         : "",
     );
 
+  const [currency, setCurrency] = useState<CurrencyCode>(
+    editing?.currency || "INR",
+  );
+
+  // Use the currency selected in Profile for new transactions.
+  // Existing transactions keep their original currency when edited.
+  useEffect(() => {
+    if (editing) {
+      setCurrency(editing.currency || "INR");
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadProfileCurrency() {
+      try {
+        const userId = await getUserId();
+        const rawProfile = localStorage.getItem(`finpilot_profile_${userId}`);
+        if (!rawProfile || cancelled) return;
+
+        const profile = JSON.parse(rawProfile);
+        const preferredCurrency = String(profile?.currency || "INR").toUpperCase();
+        if (["INR", "USD", "EUR", "GBP"].includes(preferredCurrency)) {
+          setCurrency(preferredCurrency as CurrencyCode);
+        }
+      } catch (error) {
+        console.error("Unable to load profile currency:", error);
+      }
+    }
+
+    loadProfileCurrency();
+    return () => {
+      cancelled = true;
+    };
+  }, [editing]);
+
   const [category, setCategory] =
     useState(
       editing?.category || "Other",
@@ -2566,6 +2612,7 @@ function TransactionForm({
       userId: editing?.userId,
       type,
       amount: parsedAmount,
+      currency,
       category,
 expenseType:
   type === "expense" ? expenseType : undefined,
@@ -2694,6 +2741,17 @@ expenseType:
                   className="w-full rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400/40"
                   required
                 />
+                <select
+                  value={currency}
+                  onChange={(event) => setCurrency(event.target.value as CurrencyCode)}
+                  aria-label="Transaction currency"
+                  className="mt-2 w-full rounded-xl border border-white/[0.08] bg-[#101313] px-3 py-2 text-sm text-white outline-none focus:border-emerald-400/40"
+                >
+                  <option value="INR">INR — Indian Rupee (₹)</option>
+                  <option value="USD">USD — US Dollar ($)</option>
+                  <option value="EUR">EUR — Euro (€)</option>
+                  <option value="GBP">GBP — British Pound (£)</option>
+                </select>
               </div>
 
               <div>

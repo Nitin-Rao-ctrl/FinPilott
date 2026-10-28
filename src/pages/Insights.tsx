@@ -27,6 +27,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import { Reveal } from '@/lib/animations';
 import { supabase } from '@/lib/supabase';
+import { convertTransactions, getPreferredCurrency, type SupportedCurrency } from '@/lib/currency';
 import {
   isFixedTransaction,
   isVariableTransaction,
@@ -82,6 +83,7 @@ type Transaction = {
   description?: string;
   merchant?: string;
   date?: string;
+  currency?: string;
 };
 
 type CategoryBreakdown = {
@@ -98,6 +100,8 @@ type InsightItem = {
 
 export function InsightsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [displayCurrency, setDisplayCurrency] = useState<SupportedCurrency>('INR');
+  const currencySymbol = displayCurrency === 'USD' ? '$' : displayCurrency === 'EUR' ? '€' : displayCurrency === 'GBP' ? '£' : '₹';
   const [showCategoryAnalysis, setShowCategoryAnalysis] =
     useState(false);
 
@@ -181,9 +185,14 @@ export function InsightsPage() {
 
         const data = await response.json();
 
-        setTransactions(
-          Array.isArray(data) ? data : []
+        const preferredCurrency = getPreferredCurrency(user.id);
+        setDisplayCurrency(preferredCurrency);
+        const converted = await convertTransactions(
+          (Array.isArray(data) ? data : []) as Transaction[],
+          preferredCurrency
         );
+        if (!converted) throw new Error('Exchange rates unavailable; cannot calculate mixed-currency insights.');
+        setTransactions(converted as Transaction[]);
       } catch (error) {
         console.error(
           'Error loading insights transactions:',
@@ -682,7 +691,7 @@ export function InsightsPage() {
           reductionPercent,
           potentialSavings,
           advice:
-            `Based on your variable spending pattern, reducing ${category.category} spending by ${reductionPercent}% could save approximately ₹${potentialSavings} per month.`,
+            `Based on your variable spending pattern, reducing ${category.category} spending by ${reductionPercent}% could save approximately ${currencySymbol}${potentialSavings} per month.`,
         };
       });
   }, [
@@ -1112,21 +1121,21 @@ export function InsightsPage() {
                   ? 'All Time Expense'
                   : 'Selected Month'
               }
-              value={`₹${totalExpense.toLocaleString(
+              value={`${currencySymbol}${totalExpense.toLocaleString(
                 'en-IN'
               )}`}
             />
 
             <StatBox
               label="Variable Spend"
-              value={`₹${totalVariableExpense.toLocaleString(
+              value={`${currencySymbol}${totalVariableExpense.toLocaleString(
                 'en-IN'
               )}`}
             />
 
             <StatBox
               label="Avg / Day"
-              value={`₹${avgPerDay.toLocaleString(
+              value={`${currencySymbol}${avgPerDay.toLocaleString(
                 'en-IN'
               )}`}
             />
@@ -1158,7 +1167,7 @@ export function InsightsPage() {
                 </p>
 
                 <p className="text-sm font-semibold text-white mt-0.5">
-                  ₹
+                  {currencySymbol}
                   {totalFixedExpense.toLocaleString(
                     'en-IN'
                   )}
@@ -1410,7 +1419,7 @@ export function InsightsPage() {
                       </div>
 
                       <span className="text-xs text-gray-400">
-                        ₹
+                        {currencySymbol}
                         {category.total.toLocaleString(
                           'en-IN'
                         )}{' '}
@@ -1703,11 +1712,11 @@ export function InsightsPage() {
                         </p>
 
                         <p className="text-xs text-gray-500 mt-1">
-                          Total: ₹
+                          Total: {currencySymbol}
                           {leak.total.toLocaleString(
                             'en-IN'
                           )}{' '}
-                          · Average: ₹
+                          · Average: {currencySymbol}
                           {leak.average.toLocaleString(
                             'en-IN'
                           )}{' '}
@@ -1717,7 +1726,7 @@ export function InsightsPage() {
                         <p className="text-xs text-emerald-400 mt-1.5">
                           Reduce by{' '}
                           {leak.reductionPercent}
-                          % to save ₹
+                          % to save {currencySymbol}
                           {leak.potentialSavings.toLocaleString(
                             'en-IN'
                           )}

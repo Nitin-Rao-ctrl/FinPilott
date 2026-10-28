@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Check, AlertTriangle } from 'lucide-react';
 import { Reveal } from '@/lib/animations';
 import { supabase } from '@/lib/supabase';
+import { convertTransactions, getPreferredCurrency, type SupportedCurrency } from '@/lib/currency';
 import {
   isExpense,
   isFixedTransaction,
@@ -19,6 +20,7 @@ type Transaction = {
   description?: string;
   merchant?: string;
   date?: string;
+  currency?: string;
 };
 
 type Category = {
@@ -33,6 +35,8 @@ export function BudgetPage() {
   const [saved, setSaved] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [spent, setSpent] = useState(0);
+  const [displayCurrency, setDisplayCurrency] = useState<SupportedCurrency>('INR');
+  const currencySymbol = displayCurrency === 'USD' ? '$' : displayCurrency === 'EUR' ? '€' : displayCurrency === 'GBP' ? '£' : '₹';
 
   /*
    * ==============================
@@ -137,11 +141,19 @@ if (!res.ok) {
 
 const data = await res.json();
 
-const transactions: Transaction[] = Array.isArray(data)
+const rawTransactions: Transaction[] = Array.isArray(data)
   ? data
   : Array.isArray(data?.transactions)
     ? data.transactions
     : [];
+
+const preferredCurrency = getPreferredCurrency(user.id);
+setDisplayCurrency(preferredCurrency);
+const convertedTransactions = await convertTransactions(rawTransactions, preferredCurrency);
+if (!convertedTransactions) {
+  throw new Error('Exchange rates unavailable. Could not calculate budget in the selected currency.');
+}
+const transactions = convertedTransactions as Transaction[];
 
 const isExpense = (transaction: Transaction): boolean => {
   const type = String(transaction.type || '').toLowerCase();
@@ -375,7 +387,7 @@ setCategories(breakdown);
             <div className="relative flex-1">
 
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">
-                ₹
+                {currencySymbol}
               </span>
 
               <input
@@ -457,7 +469,7 @@ setCategories(breakdown);
               </p>
 
               <p className="text-lg font-bold text-white mt-1">
-                ₹
+                {currencySymbol}
                 {spent.toLocaleString(
                   'en-IN'
                 )}
@@ -471,7 +483,7 @@ setCategories(breakdown);
               </p>
 
               <p className="text-lg font-bold text-white mt-1">
-                ₹
+                {currencySymbol}
                 {remaining.toLocaleString(
                   'en-IN'
                 )}
@@ -500,12 +512,12 @@ setCategories(breakdown);
               <p className="text-sm text-amber-300">
 
                 {utilization >= 100
-                  ? `You have exceeded your budget by ₹${(
+                  ? `You have exceeded your budget by ${currencySymbol}${(
                       spent - budgetNum
                     ).toLocaleString(
                       'en-IN'
                     )}.`
-                  : `You're very close to your budget limit. Only ₹${remaining.toLocaleString(
+                  : `You're very close to your budget limit. Only ${currencySymbol}${remaining.toLocaleString(
                       'en-IN'
                     )} left.`}
 
@@ -569,7 +581,7 @@ setCategories(breakdown);
                       </span>
 
                       <span className="text-xs text-gray-500">
-                        ₹
+                        {currencySymbol}
                         {cat.total.toLocaleString(
                           'en-IN'
                         )}{' '}

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Reveal } from '@/lib/animations';
 import { supabase } from '@/lib/supabase';
+import { convertTransactions, getPreferredCurrency, type SupportedCurrency } from '@/lib/currency';
 import {
   MonthSelector,
   type SelectedPeriod,
@@ -31,10 +32,13 @@ type Transaction = {
   description?: string;
   merchant?: string;
   date?: string;
+  currency?: string;
 };
 
 export function WeeklyReportPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [displayCurrency, setDisplayCurrency] = useState<SupportedCurrency>('INR');
+  const currencySymbol = displayCurrency === 'USD' ? '$' : displayCurrency === 'EUR' ? '€' : displayCurrency === 'GBP' ? '£' : '₹';
   const [generated, setGenerated] = useState(true);
   const [generating, setGenerating] = useState(false);
 
@@ -110,9 +114,14 @@ export function WeeklyReportPage() {
 
       const data = await response.json();
 
-      setTransactions(
-        Array.isArray(data) ? data : []
+      const preferredCurrency = getPreferredCurrency(user.id);
+      setDisplayCurrency(preferredCurrency);
+      const converted = await convertTransactions(
+        (Array.isArray(data) ? data : []) as Transaction[],
+        preferredCurrency
       );
+      if (!converted) throw new Error('Exchange rates unavailable; cannot generate a mixed-currency report.');
+      setTransactions(converted as Transaction[]);
     } catch (error) {
       console.error(
         'Error loading weekly report transactions:',
@@ -301,13 +310,13 @@ export function WeeklyReportPage() {
       heading: 'Spending Overview',
       body:
         spending > 0
-          ? `You spent ₹${spending.toLocaleString(
+          ? `You spent ${currencySymbol}${spending.toLocaleString(
               'en-IN'
             )} across ${expenses.length} expense transaction${
               expenses.length === 1 ? '' : 's'
-            } this week. ₹${fixedSpending.toLocaleString(
+            } this week. ${currencySymbol}${fixedSpending.toLocaleString(
               'en-IN'
-            )} was fixed and ₹${variableSpending.toLocaleString(
+            )} was fixed and ${currencySymbol}${variableSpending.toLocaleString(
               'en-IN'
             )} was variable.`
           : 'No expense transactions were recorded this week.',
@@ -317,9 +326,9 @@ export function WeeklyReportPage() {
       heading: 'Income & Savings',
       body:
         income > 0
-          ? `You recorded ₹${income.toLocaleString(
+          ? `You recorded ${currencySymbol}${income.toLocaleString(
               'en-IN'
-            )} in income. Your calculated savings for this period are ₹${savings.toLocaleString(
+            )} in income. Your calculated savings for this period are ${currencySymbol}${savings.toLocaleString(
               'en-IN'
             )}.`
           : 'No income transactions were recorded this week.',
@@ -329,7 +338,7 @@ export function WeeklyReportPage() {
       heading: 'Top Spending Category',
       body:
         biggestCategory !== 'No spending'
-          ? `${biggestCategory} was your highest spending category with ₹${biggestCategoryAmount.toLocaleString(
+          ? `${biggestCategory} was your highest spending category with ${currencySymbol}${biggestCategoryAmount.toLocaleString(
               'en-IN'
             )} spent.`
           : 'There is not enough spending data to identify a top category.',
@@ -497,7 +506,7 @@ export function WeeklyReportPage() {
                   </p>
 
                   <p className="text-2xl font-bold text-white mt-1">
-                    ₹{spending.toLocaleString('en-IN')}
+                    {currencySymbol}{spending.toLocaleString('en-IN')}
                   </p>
 
                   <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
@@ -523,7 +532,7 @@ export function WeeklyReportPage() {
                         : 'text-red-400'
                     }`}
                   >
-                    ₹{savings.toLocaleString('en-IN')}
+                    {currencySymbol}{savings.toLocaleString('en-IN')}
                   </p>
 
                   <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
@@ -552,7 +561,7 @@ export function WeeklyReportPage() {
 
                   <p className="text-xs text-gray-500 mt-1">
                     {biggestCategoryAmount > 0
-                      ? `₹${biggestCategoryAmount.toLocaleString(
+                      ? `${currencySymbol}${biggestCategoryAmount.toLocaleString(
                           'en-IN'
                         )}`
                       : 'No data'}
@@ -570,7 +579,7 @@ export function WeeklyReportPage() {
                     Fixed Commitments
                   </p>
                   <p className="text-lg font-bold text-white mt-1">
-                    ₹{fixedSpending.toLocaleString('en-IN')}
+                    {currencySymbol}{fixedSpending.toLocaleString('en-IN')}
                   </p>
                   <p className="text-[10px] text-gray-600 mt-1">
                     Included in cash flow, excluded from spending insights
@@ -582,7 +591,7 @@ export function WeeklyReportPage() {
                     Variable Spending
                   </p>
                   <p className="text-lg font-bold text-white mt-1">
-                    ₹{variableSpending.toLocaleString('en-IN')}
+                    {currencySymbol}{variableSpending.toLocaleString('en-IN')}
                   </p>
                   <p className="text-[10px] text-gray-600 mt-1">
                     Used for discretionary analysis
@@ -697,7 +706,7 @@ export function WeeklyReportPage() {
                           </span>
 
                           <span className="text-gray-300">
-                            ₹
+                            {currencySymbol}
                             {cat.amount.toLocaleString(
                               'en-IN'
                             )}{' '}
